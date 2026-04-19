@@ -3,7 +3,7 @@ from datetime import datetime
 import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from fetcher import fetch_articles
+from agent import invoke
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "nature-weekly-secret")
@@ -275,7 +275,7 @@ def index():
     if not session.get("auth"):
         return redirect(url_for("login"))
 
-    articles = fetch_articles()
+    articles = invoke({"action": "fetch"}).get("result", {}).get("articles", [])
     lead = articles[0] if articles else None
     secondary = articles[1:]
     rows = [secondary[i:i+2] for i in range(0, len(secondary), 2)]
