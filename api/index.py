@@ -1,52 +1,15 @@
 from flask import Flask, render_template_string, request, session, redirect, url_for
-import requests
-from bs4 import BeautifulSoup
 from datetime import datetime
-import os
+import os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from fetcher import fetch_articles
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "nature-weekly-secret")
 
 VALID_USERNAME = "prateek.kacker"
 VALID_PASSWORD = "PK"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-}
-
-CATEGORIES = [
-    {"label": "News", "url": "https://www.nature.com/nature/articles?type=news-&year=2026", "topic": "News"},
-    {"label": "Research", "url": "https://www.nature.com/nature/research-articles?year=2026", "topic": "Research"},
-    {"label": "News & Views", "url": "https://www.nature.com/nature/articles?type=news-and-views-&year=2026", "topic": "News & Views"},
-]
-
-def fetch_articles(max_articles=5):
-    articles = []
-    for cat in CATEGORIES:
-        try:
-            resp = requests.get(cat["url"], headers=HEADERS, timeout=15)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            items = soup.select("article")[:max_articles]
-            for item in items:
-                title_el = item.select_one("h3 a, h2 a")
-                summary_el = item.select_one("p")
-                if not title_el:
-                    continue
-                title = title_el.get_text(strip=True)
-                href = title_el.get("href", "")
-                link = f"https://www.nature.com{href}" if href.startswith("/") else href
-                summary = summary_el.get_text(strip=True) if summary_el else ""
-                articles.append({
-                    "topic": cat["topic"],
-                    "title": title,
-                    "link": link,
-                    "simple_summary": summary,
-                    "why_it_matters": "",
-                    "read_time_minutes": 4,
-                })
-        except Exception as e:
-            print(f"Error fetching {cat['label']}: {e}")
-    return articles
 
 def to_roman(num):
     romans = ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"]
