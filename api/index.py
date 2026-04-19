@@ -1,429 +1,329 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, session, redirect, url_for
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+import os
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "nature-weekly-secret")
+
+VALID_USERNAME = "prateek.kacker"
+VALID_PASSWORD = "PK"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 }
 
 CATEGORIES = [
-    {"label": "News", "url": "https://www.nature.com/nature/articles?type=news-&year=2026", "icon": "📰", "color": "#e63946", "dark_color": "#ff6b6b"},
-    {"label": "Research", "url": "https://www.nature.com/nature/research-articles?year=2026", "icon": "🔬", "color": "#2a9d8f", "dark_color": "#00f5d4"},
-    {"label": "News & Views", "url": "https://www.nature.com/nature/articles?type=news-and-views-&year=2026", "icon": "💡", "color": "#b5830a", "dark_color": "#ffe66d"},
+    {"label": "News", "url": "https://www.nature.com/nature/articles?type=news-&year=2026", "topic": "News"},
+    {"label": "Research", "url": "https://www.nature.com/nature/research-articles?year=2026", "topic": "Research"},
+    {"label": "News & Views", "url": "https://www.nature.com/nature/articles?type=news-and-views-&year=2026", "topic": "News & Views"},
 ]
 
-def fetch_articles(url, label, max_articles=6):
+def fetch_articles(max_articles=5):
     articles = []
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select("article")[:max_articles]
-        for item in items:
-            title_el = item.select_one("h3 a, h2 a")
-            summary_el = item.select_one("p")
-            if not title_el:
-                continue
-            title = title_el.get_text(strip=True)
-            href = title_el.get("href", "")
-            link = f"https://www.nature.com{href}" if href.startswith("/") else href
-            summary = summary_el.get_text(strip=True) if summary_el else ""
-            articles.append({"title": title, "link": link, "summary": summary})
-    except Exception as e:
-        print(f"Error fetching {label}: {e}")
+    for cat in CATEGORIES:
+        try:
+            resp = requests.get(cat["url"], headers=HEADERS, timeout=15)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select("article")[:max_articles]
+            for item in items:
+                title_el = item.select_one("h3 a, h2 a")
+                summary_el = item.select_one("p")
+                if not title_el:
+                    continue
+                title = title_el.get_text(strip=True)
+                href = title_el.get("href", "")
+                link = f"https://www.nature.com{href}" if href.startswith("/") else href
+                summary = summary_el.get_text(strip=True) if summary_el else ""
+                articles.append({
+                    "topic": cat["topic"],
+                    "title": title,
+                    "link": link,
+                    "simple_summary": summary,
+                    "why_it_matters": "",
+                    "read_time_minutes": 4,
+                })
+        except Exception as e:
+            print(f"Error fetching {cat['label']}: {e}")
     return articles
 
-HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="en" data-theme="broadsheet">
+def to_roman(num):
+    romans = ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"]
+    return romans[num - 1] if 1 <= num <= 20 else str(num)
+
+LOGIN_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Nature Weekly — {{ date_str }}</title>
+    <title>The Nature Post — Sign In</title>
     <style>
-        /* ── Base reset ── */
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        /* ══════════════════════════════════════
-           THEME 1: BROADSHEET (Classic Newspaper)
-        ══════════════════════════════════════ */
-        [data-theme="broadsheet"] {
-            --bg: #f5f0e8;
-            --surface: #fffef9;
-            --text: #111;
-            --subtext: #444;
-            --border: #222;
-            --header-bg: #111;
-            --header-text: #f5f0e8;
-            --accent: #111;
-            --link: #111;
-            --link-hover: #555;
-            --more: #555;
-            --divider: #222;
-            --badge-bg: #111;
-            --badge-text: #f5f0e8;
-            --toggle-bg: #111;
-            --toggle-text: #f5f0e8;
-            --shadow: none;
-            --card-border: 1px solid #bbb;
-            --radius: 0;
-            --font-body: 'Georgia', 'Times New Roman', serif;
-            --font-ui: 'Georgia', serif;
-        }
-
-        /* ══════════════════════════════════════
-           THEME 2: DARK MODE (Science Journal)
-        ══════════════════════════════════════ */
-        [data-theme="dark"] {
-            --bg: #0a0e1a;
-            --surface: #111827;
-            --text: #e2e8f0;
-            --subtext: #94a3b8;
-            --border: #1e293b;
-            --header-bg: #060912;
-            --header-text: #e2e8f0;
-            --accent: #00f5d4;
-            --link: #e2e8f0;
-            --link-hover: #00f5d4;
-            --more: #00f5d4;
-            --divider: #1e293b;
-            --badge-bg: #00f5d4;
-            --badge-text: #0a0e1a;
-            --toggle-bg: #00f5d4;
-            --toggle-text: #0a0e1a;
-            --shadow: 0 0 20px rgba(0, 245, 212, 0.08);
-            --card-border: 1px solid #1e293b;
-            --radius: 10px;
-            --font-body: 'Inter', 'Segoe UI', sans-serif;
-            --font-ui: 'Inter', 'Segoe UI', sans-serif;
-        }
-
-        /* ── Layout ── */
-        body {
-            font-family: var(--font-body);
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.75;
-            transition: background 0.3s, color 0.3s;
-        }
-
-        /* ── Theme toggle ── */
-        .theme-toggle {
-            position: fixed;
-            top: 18px;
-            right: 20px;
-            z-index: 100;
-            background: var(--toggle-bg);
-            color: var(--toggle-text);
-            border: none;
-            padding: 8px 16px;
-            font-size: 0.8rem;
-            font-family: var(--font-ui);
-            font-weight: 700;
-            cursor: pointer;
-            border-radius: var(--radius);
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            transition: all 0.3s;
-        }
-        .theme-toggle:hover { opacity: 0.85; }
-
-        /* ── Header ── */
-        header {
-            background: var(--header-bg);
-            color: var(--header-text);
-            padding: 60px 20px 40px;
-            text-align: center;
-            border-bottom: 4px double var(--divider);
-            position: relative;
-        }
-
-        [data-theme="broadsheet"] header {
-            border-bottom: 4px double #555;
-        }
-
-        [data-theme="broadsheet"] .masthead-rule {
-            border: none;
-            border-top: 1px solid #555;
-            margin: 12px auto;
-            width: 60%;
-        }
-
-        [data-theme="dark"] .masthead-rule {
-            border: none;
-            border-top: 1px solid #00f5d4;
-            margin: 12px auto;
-            width: 60%;
-            box-shadow: 0 0 8px rgba(0,245,212,0.4);
-        }
-
-        header h1 {
-            font-family: var(--font-body);
-            font-size: 3rem;
-            letter-spacing: 4px;
-            text-transform: uppercase;
-            margin-bottom: 6px;
-        }
-
-        [data-theme="dark"] header h1 {
-            color: #00f5d4;
-            text-shadow: 0 0 20px rgba(0,245,212,0.5);
-            letter-spacing: 6px;
-        }
-
-        header p {
-            font-size: 0.95rem;
-            opacity: 0.7;
-            font-style: italic;
-            margin-bottom: 14px;
-        }
-
-        [data-theme="dark"] header p { font-style: normal; }
-
-        .badge {
-            display: inline-block;
-            background: var(--badge-bg);
-            color: var(--badge-text);
-            font-size: 0.75rem;
-            padding: 4px 14px;
-            font-family: var(--font-ui);
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            border-radius: var(--radius);
-        }
-
-        [data-theme="dark"] .badge {
-            box-shadow: 0 0 10px rgba(0,245,212,0.3);
-        }
-
-        /* ── Main ── */
-        main { max-width: 1060px; margin: 50px auto; padding: 0 24px; }
-
-        /* ── Section ── */
-        .section { margin-bottom: 60px; }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 24px;
-        }
-
-        [data-theme="broadsheet"] .section-header {
-            border-bottom: 3px solid #111;
-            padding-bottom: 8px;
-        }
-
-        [data-theme="dark"] .section-header {
-            border-bottom: 1px solid var(--divider);
-            padding-bottom: 10px;
-        }
-
-        .section-title {
-            font-size: 1.3rem;
-            font-family: var(--font-body);
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        [data-theme="dark"] .section-title { color: var(--accent); }
-
-        .section-icon { font-size: 1.2rem; }
-
-        /* ── Cards grid ── */
-        [data-theme="broadsheet"] .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 0;
-            border-top: 1px solid #bbb;
-            border-left: 1px solid #bbb;
-        }
-
-        [data-theme="dark"] .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 18px;
-        }
-
-        /* ── Cards ── */
-        [data-theme="broadsheet"] .card {
-            background: var(--surface);
-            padding: 22px;
-            border-right: 1px solid #bbb;
-            border-bottom: 1px solid #bbb;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        [data-theme="dark"] .card {
-            background: var(--surface);
-            border: var(--card-border);
-            border-radius: var(--radius);
-            padding: 22px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            box-shadow: var(--shadow);
-            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-        }
-
-        [data-theme="dark"] .card:hover {
-            transform: translateY(-4px);
-            border-color: #00f5d4;
-            box-shadow: 0 0 24px rgba(0,245,212,0.15);
-        }
-
-        [data-theme="broadsheet"] .card:hover { background: #fffde7; }
-
-        .card a.title {
-            font-size: 1rem;
-            font-weight: bold;
-            color: var(--link);
-            text-decoration: none;
-            font-family: var(--font-body);
-            line-height: 1.4;
-        }
-
-        [data-theme="broadsheet"] .card a.title { font-size: 1.05rem; }
-
-        .card a.title:hover { color: var(--link-hover); text-decoration: underline; }
-
-        .card p {
-            font-size: 0.87rem;
-            color: var(--subtext);
-            flex-grow: 1;
-            font-family: var(--font-body);
-        }
-
-        .card a.more {
-            font-size: 0.8rem;
-            color: var(--more);
-            font-family: var(--font-ui);
-            font-weight: 700;
-            text-decoration: none;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        [data-theme="broadsheet"] .card a.more::after { content: " ›"; }
-        [data-theme="dark"] .card a.more::after { content: " →"; }
-
-        .card a.more:hover { text-decoration: underline; }
-
-        /* ── Footer ── */
-        footer {
-            text-align: center;
-            padding: 30px;
-            font-size: 0.8rem;
-            color: var(--subtext);
-            font-family: var(--font-ui);
-            border-top: 2px solid var(--divider);
-            margin-top: 20px;
-        }
-
-        [data-theme="broadsheet"] footer { border-top: 3px double #555; }
-
-        footer a { color: var(--more); }
-
-        /* ── Dark scanline overlay ── */
-        [data-theme="dark"] body::before {
-            content: "";
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(0,0,0,0.03) 2px,
-                rgba(0,0,0,0.03) 4px
-            );
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        main, header, footer { position: relative; z-index: 1; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+               background: #f5f1e8; font-family: Georgia, 'Times New Roman', serif; padding: 2rem 1rem; }
+        .card { max-width: 420px; width: 100%; background: white; border: 1px solid #d6d3d1;
+                padding: 3rem 2.5rem; box-shadow: 0 2px 20px rgba(0,0,0,0.06); }
+        .eyebrow { display: flex; align-items: center; justify-content: center; gap: 10px;
+                   color: #78716c; font-size: 10px; letter-spacing: 0.3em;
+                   font-family: ui-sans-serif, system-ui, sans-serif; margin-bottom: 12px; }
+        .eyebrow hr { width: 24px; border: none; border-top: 1px solid #a8a29e; }
+        h1 { text-align: center; font-size: clamp(1.75rem, 5vw, 2.5rem); font-weight: 500;
+             letter-spacing: -0.02em; line-height: 0.95; color: #1c1917; }
+        .subtitle { text-align: center; font-style: italic; color: #78716c; font-size: 13px; margin-top: 8px; }
+        .rule { border-top: 2px solid #1c1917; border-bottom: 1px solid #1c1917; padding: 8px 4px; margin: 28px 0; }
+        .rule p { text-align: center; font-size: 10px; letter-spacing: 0.25em; color: #1c1917;
+                  font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; }
+        label { display: block; font-size: 10px; letter-spacing: 0.25em; color: #57534e;
+                font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; margin-bottom: 8px; }
+        .field { margin-bottom: 20px; }
+        input { width: 100%; padding: 12px 16px; border: 1px solid #a8a29e; font-family: Georgia, serif;
+                font-size: 15px; color: #1c1917; background: white; outline: none; transition: border-color 0.2s; }
+        input:focus { border-color: #1c1917; }
+        .error { display: flex; align-items: flex-start; gap: 8px; background: #fef2f2;
+                 border: 1px solid #fecaca; padding: 10px 12px; margin-bottom: 20px; color: #7f1d1d; }
+        .error p { font-style: italic; font-size: 13px; line-height: 1.5; }
+        .btn { width: 100%; padding: 12px; background: #1c1917; color: white; border: none; cursor: pointer;
+               font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; letter-spacing: 0.2em;
+               text-transform: uppercase; display: flex; align-items: center; justify-content: center;
+               gap: 8px; transition: background 0.2s; }
+        .btn:hover { background: #44403c; }
+        .footer-note { text-align: center; color: #a8a29e; font-style: italic; font-size: 12px; margin-top: 32px; }
     </style>
 </head>
 <body>
-<button class="theme-toggle" onclick="toggleTheme()" id="toggle-btn">☀ Broadsheet</button>
-
-<header>
-    <hr class="masthead-rule"/>
-    <h1>🌿 Nature Weekly</h1>
-    <p>Your simplified digest of the latest science from Nature magazine</p>
-    <hr class="masthead-rule"/>
-    <span class="badge">Week of {{ date_str }} &nbsp;·&nbsp; {{ total }} articles</span>
-</header>
-
-<main>
-    {% for cat in categories %}
-    <section class="section">
-        <div class="section-header">
-            <span class="section-icon">{{ cat.icon }}</span>
-            <h2 class="section-title" data-light-color="{{ cat.color }}" data-dark-color="{{ cat.dark_color }}">
-                {{ cat.label }}
-            </h2>
+<div class="card">
+    <div class="eyebrow">
+        <hr/> 🌿 <span>Subscribers only</span> 🌿 <hr/>
+    </div>
+    <h1>The Nature Post</h1>
+    <p class="subtitle">Please sign in to read this week's issue.</p>
+    <div class="rule">
+        <p>Private edition · For Prateek</p>
+    </div>
+    <form method="POST" action="/login">
+        <div class="field">
+            <label>Username</label>
+            <input type="text" name="username" autofocus autocomplete="username" spellcheck="false"/>
         </div>
-        <div class="grid">
-            {% for a in cat.articles %}
-            <div class="card">
-                <a class="title" href="{{ a.link }}" target="_blank">{{ a.title }}</a>
-                {% if a.summary %}<p>{{ a.summary }}</p>{% endif %}
-                <a class="more" href="{{ a.link }}" target="_blank">Read full article</a>
-            </div>
-            {% endfor %}
+        <div class="field">
+            <label>Password</label>
+            <input type="password" name="password" autocomplete="current-password"/>
         </div>
-    </section>
-    {% endfor %}
-</main>
-
-<footer>
-    Content sourced from <a href="https://www.nature.com" target="_blank">nature.com</a>
-    &nbsp;·&nbsp; Generated on {{ date_str }}
-</footer>
-
-<script>
-    const html = document.documentElement;
-    const btn = document.getElementById('toggle-btn');
-
-    function applyTheme(theme) {
-        html.setAttribute('data-theme', theme);
-        btn.textContent = theme === 'dark' ? '🗞 Broadsheet' : '🌙 Dark Mode';
-        localStorage.setItem('nw-theme', theme);
-        updateSectionColors(theme);
-    }
-
-    function updateSectionColors(theme) {
-        document.querySelectorAll('.section-title').forEach(el => {
-            el.style.color = theme === 'dark'
-                ? el.dataset.darkColor
-                : el.dataset.lightColor;
-        });
-    }
-
-    function toggleTheme() {
-        const current = html.getAttribute('data-theme');
-        applyTheme(current === 'dark' ? 'broadsheet' : 'dark');
-    }
-
-    // Load saved preference
-    const saved = localStorage.getItem('nw-theme') || 'broadsheet';
-    applyTheme(saved);
-</script>
+        {% if error %}
+        <div class="error">
+            <span>⚠</span>
+            <p>{{ error }}</p>
+        </div>
+        {% endif %}
+        <button type="submit" class="btn">🔒 Sign in</button>
+    </form>
+    <p class="footer-note">Exclusively for invited readers.</p>
+</div>
 </body>
 </html>"""
 
+MAIN_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>The Nature Post — {{ date_str }}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { min-height: 100vh; padding: 2rem 1rem; background: #f5f1e8;
+               font-family: Georgia, 'Times New Roman', serif; }
+        .paper { max-width: 896px; margin: 0 auto; background: white;
+                 border: 1px solid #d6d3d1; box-shadow: 0 2px 20px rgba(0,0,0,0.06); }
+        .inner { padding: 2.5rem 1.5rem; }
+        @media(min-width:768px){ .inner { padding: 3rem 3.5rem; } }
+
+        /* Header */
+        .eyebrow { display: flex; align-items: center; justify-content: center; gap: 10px;
+                   color: #78716c; font-size: 10px; letter-spacing: 0.3em;
+                   font-family: ui-sans-serif, system-ui, sans-serif; margin-bottom: 12px; }
+        .eyebrow hr { width: 32px; border: none; border-top: 1px solid #a8a29e; }
+        h1.masthead { text-align: center; font-size: clamp(2.25rem, 7vw, 4.5rem);
+                      font-weight: 500; letter-spacing: -0.02em; line-height: 0.95; color: #1c1917; }
+        .tagline { text-align: center; font-style: italic; color: #78716c; font-size: 14px; margin-top: 12px; }
+        .dateline { border-top: 3px solid #1c1917; border-bottom: 1px solid #1c1917;
+                    padding: 8px 4px; margin-top: 24px; }
+        .dateline-inner { display: flex; align-items: center; justify-content: space-between;
+                          font-size: 11px; letter-spacing: 0.2em; color: #1c1917;
+                          font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; }
+
+        /* Lead story */
+        .lead { padding-bottom: 2.5rem; border-bottom: 1px solid #d6d3d1; margin-top: 2.5rem; }
+        .topic-label { font-size: 11px; letter-spacing: 0.25em; color: #78716c;
+                       font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; margin-bottom: 16px; }
+        .topic-label span { margin: 0 8px; }
+        h2.lead-title { font-size: clamp(1.875rem, 5vw, 3rem); font-weight: 500; color: #1c1917;
+                        letter-spacing: -0.015em; line-height: 1.05; margin-bottom: 20px; }
+        .meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #78716c;
+                font-family: ui-sans-serif, system-ui, sans-serif; margin-bottom: 24px; flex-wrap: wrap; }
+        .lead-body { font-size: 18px; line-height: 1.75; color: #292524; }
+        .drop-cap { float: left; font-size: 68px; line-height: 0.85; margin-top: 6px;
+                    margin-right: 8px; font-weight: 500; color: #1c1917; font-family: Georgia, serif; }
+        .why-box { margin-top: 32px; padding-left: 20px; border-left: 2px solid #1c1917; }
+        .why-label { font-size: 11px; letter-spacing: 0.25em; color: #78716c;
+                     font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; margin-bottom: 4px; }
+        .why-text { font-style: italic; color: #44403c; font-size: 16px; line-height: 1.7; }
+        .read-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px;
+                     font-size: 12px; letter-spacing: 0.15em; color: #1c1917; text-decoration: none;
+                     border-bottom: 1.5px solid #1c1917; padding-bottom: 2px;
+                     font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; }
+        .read-link:hover { opacity: 0.6; }
+
+        /* Secondary grid */
+        .grid { display: grid; }
+        @media(min-width:768px){ .grid { grid-template-columns: 1fr 1fr; } }
+        .grid-item { padding: 2rem 0; }
+        .grid-item:not(:last-child) { border-bottom: 1px solid #d6d3d1; }
+        @media(min-width:768px){
+            .grid-item:nth-child(odd) { padding-right: 2rem; border-right: 1px solid #d6d3d1; border-bottom: none; }
+            .grid-item:nth-child(even) { padding-left: 2rem; border-bottom: none; }
+            .grid-row:not(:first-child) .grid-item { border-top: 1px solid #d6d3d1; }
+        }
+        h3.art-title { font-size: 22px; font-weight: 500; color: #1c1917; letter-spacing: -0.01em;
+                       line-height: 1.2; margin-bottom: 12px; }
+        .art-meta { font-size: 11px; color: #78716c; font-family: ui-sans-serif, system-ui, sans-serif;
+                    margin-bottom: 16px; }
+        .art-summary { font-size: 15px; line-height: 1.7; color: #44403c; margin-bottom: 16px; }
+        .art-why { padding-left: 12px; border-left: 1px solid #a8a29e; margin-bottom: 20px; }
+        .art-why-label { font-size: 10px; letter-spacing: 0.2em; color: #78716c;
+                         font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; }
+        .art-why-text { font-style: italic; color: #57534e; font-size: 13px; line-height: 1.65; }
+
+        /* Footer */
+        .paper-footer { border-top: 1px solid #1c1917; margin-top: 3rem; padding-top: 1.5rem;
+                        display: flex; flex-direction: column; gap: 16px; }
+        @media(min-width:640px){ .paper-footer { flex-direction: row; align-items: center; justify-content: space-between; } }
+        .footer-note { font-size: 11px; line-height: 1.7; color: #78716c;
+                       font-family: ui-sans-serif, system-ui, sans-serif; }
+        .footer-actions { display: flex; align-items: center; gap: 20px; }
+        .signout-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+                       letter-spacing: 0.15em; color: #78716c; background: none; border: none;
+                       cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif;
+                       text-transform: uppercase; text-decoration: none; }
+        .signout-btn:hover { color: #1c1917; }
+        .refresh-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px;
+                       background: #1c1917; color: white; border: none; cursor: pointer;
+                       font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px;
+                       letter-spacing: 0.2em; text-transform: uppercase; text-decoration: none; }
+        .refresh-btn:hover { background: #44403c; }
+    </style>
+</head>
+<body>
+<div class="paper">
+  <div class="inner">
+
+    <header>
+      <div class="eyebrow">
+        <hr/> 🌿 <span>A weekly science digest</span> 🌿 <hr/>
+      </div>
+      <h1 class="masthead">The Nature Post</h1>
+      <p class="tagline">Science news, in plain words.</p>
+      <div class="dateline">
+        <div class="dateline-inner">
+          <span>{{ date_str }}</span>
+          <span class="hidden-sm">Weekly edition</span>
+          <span>No. {{ issue_roman }}</span>
+        </div>
+      </div>
+    </header>
+
+    {% if lead %}
+    <article class="lead">
+      <p class="topic-label">
+        <span>{{ lead.topic }}</span><span>—</span><span>Lead story</span>
+      </p>
+      <h2 class="lead-title">{{ lead.title }}</h2>
+      <div class="meta">
+        <span>⏱ {{ lead.read_time_minutes }} min read</span>
+      </div>
+      <p class="lead-body">
+        <span class="drop-cap">{{ lead.simple_summary[0] }}</span>{{ lead.simple_summary[1:] }}
+      </p>
+      {% if lead.why_it_matters %}
+      <div class="why-box">
+        <p class="why-label">Why it matters</p>
+        <p class="why-text">{{ lead.why_it_matters }}</p>
+      </div>
+      {% endif %}
+      <a href="{{ lead.link }}" target="_blank" class="read-link">Read full article →</a>
+    </article>
+
+    {% for row in rows %}
+    <div class="grid grid-row">
+      {% for art in row %}
+      <article class="grid-item">
+        <p class="topic-label">{{ art.topic }}</p>
+        <h3 class="art-title">{{ art.title }}</h3>
+        <p class="art-meta">⏱ {{ art.read_time_minutes }} min read</p>
+        <p class="art-summary">{{ art.simple_summary }}</p>
+        {% if art.why_it_matters %}
+        <div class="art-why">
+          <span class="art-why-label">Why it matters — </span>
+          <span class="art-why-text">{{ art.why_it_matters }}</span>
+        </div>
+        {% endif %}
+        <a href="{{ art.link }}" target="_blank" class="read-link">Read full article →</a>
+      </article>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <footer class="paper-footer">
+      <p class="footer-note">
+        Sourced from Nature (nature.com)<br/>
+        An editorial experiment in plain-language science.
+      </p>
+      <div class="footer-actions">
+        <a href="/logout" class="signout-btn">⬡ Sign out</a>
+        <a href="/?refresh=1" class="refresh-btn">↻ Print next issue</a>
+      </div>
+    </footer>
+
+  </div>
+</div>
+</body>
+</html>"""
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        u = request.form.get("username", "").strip().lower()
+        p = request.form.get("password", "")
+        if u == VALID_USERNAME and p == VALID_PASSWORD:
+            session["auth"] = True
+            return redirect(url_for("index"))
+        error = "Those credentials aren't on the subscribers list."
+    return render_template_string(LOGIN_TEMPLATE, error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 @app.route("/")
 def index():
-    categories = []
-    total = 0
-    for cat in CATEGORIES:
-        articles = fetch_articles(cat["url"], cat["label"])
-        total += len(articles)
-        categories.append({**cat, "articles": articles})
+    if not session.get("auth"):
+        return redirect(url_for("login"))
 
-    date_str = datetime.now().strftime("%B %d, %Y")
-    return render_template_string(HTML_TEMPLATE, categories=categories, date_str=date_str, total=total)
+    articles = fetch_articles()
+    lead = articles[0] if articles else None
+    secondary = articles[1:]
+    rows = [secondary[i:i+2] for i in range(0, len(secondary), 2)]
+
+    date_str = datetime.now().strftime("%A, %B %d, %Y")
+    issue_roman = to_roman(1)
+
+    return render_template_string(
+        MAIN_TEMPLATE,
+        lead=lead,
+        rows=rows,
+        date_str=date_str,
+        issue_roman=issue_roman
+    )
