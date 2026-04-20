@@ -157,8 +157,18 @@ MAIN_TEMPLATE = """<!DOCTYPE html>
                          font-family: ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; }
         .art-why-text { font-style: italic; color: #57534e; font-size: 13px; line-height: 1.65; }
 
+        /* Disclaimer */
+        .disclaimer { background: #fafaf9; border: 1px solid #e7e5e4; border-left: 3px solid #a8a29e;
+                      padding: 14px 18px; margin-top: 2.5rem; }
+        .disclaimer p { font-size: 11px; line-height: 1.8; color: #78716c;
+                        font-family: ui-sans-serif, system-ui, sans-serif; }
+        .disclaimer a { color: #1c1917; }
+        .ai-badge { display: inline-block; font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
+                    background: #e7e5e4; color: #78716c; padding: 2px 6px; border-radius: 2px;
+                    font-family: ui-sans-serif, system-ui, sans-serif; vertical-align: middle; margin-left: 4px; }
+
         /* Footer */
-        .paper-footer { border-top: 1px solid #1c1917; margin-top: 3rem; padding-top: 1.5rem;
+        .paper-footer { border-top: 1px solid #1c1917; margin-top: 2rem; padding-top: 1.5rem;
                         display: flex; flex-direction: column; gap: 16px; }
         @media(min-width:640px){ .paper-footer { flex-direction: row; align-items: center; justify-content: space-between; } }
         .footer-note { font-size: 11px; line-height: 1.7; color: #78716c;
@@ -237,10 +247,23 @@ MAIN_TEMPLATE = """<!DOCTYPE html>
     {% endfor %}
     {% endif %}
 
+    <div class="disclaimer">
+      <p>
+        📋 <strong>Copyright notice:</strong>
+        Article headlines and links are sourced from
+        <a href="https://www.nature.com/nature.rss" target="_blank">Nature's official RSS feed</a>
+        (© Springer Nature). All summaries on this page are
+        <span class="ai-badge">AI rewritten</span>
+        original plain-English interpretations — not reproductions of Nature's text.
+        This is a personal, non-commercial digest. Read the full articles at
+        <a href="https://www.nature.com" target="_blank">nature.com</a>.
+      </p>
+    </div>
+
     <footer class="paper-footer">
       <p class="footer-note">
-        Sourced from Nature (nature.com)<br/>
-        An editorial experiment in plain-language science.
+        Headlines via <a href="https://www.nature.com/nature.rss" target="_blank">Nature RSS</a>
+        · Summaries AI-generated · © Springer Nature for original articles
       </p>
       <div class="footer-actions">
         <a href="/logout" class="signout-btn">⬡ Sign out</a>
