@@ -1,15 +1,36 @@
 from flask import Flask, render_template_string, request, session, redirect, url_for
 from datetime import datetime
-import os, sys
+import os
+import sys
+import json
+import boto3
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from agent import invoke
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "nature-weekly-secret")
 
 VALID_USERNAME = "prateek.kacker"
 VALID_PASSWORD = "PK"
+S3_BUCKET = os.environ.get("CACHE_BUCKET", "nature-weekly-cache")
+S3_KEY = "latest.json"
+
+
+def load_cached_issue():
+    """Read the latest weekly issue from S3 cache."""
+    try:
+        s3 = boto3.client("s3")
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=S3_KEY)
+        return json.loads(obj["Body"].read())
+    except Exception:
+        # Fallback: fetch live if no cache exists yet
+        from fetcher import fetch_articles
+        articles = fetch_articles()
+        return {
+            "fetched_at": datetime.now().isoformat(),
+            "issue_date": datetime.now().strftime("%A, %B %d, %Y"),
+            "articles": articles,
+        }
 
 def to_roman(num):
     romans = ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"]
@@ -298,12 +319,14 @@ def index():
     if not session.get("auth"):
         return redirect(url_for("login"))
 
-    articles = invoke({"action": "fetch"}).get("result", {}).get("articles", [])
+    data = load_cached_issue()
+    articles = data.get("articles", [])
     lead = articles[0] if articles else None
     secondary = articles[1:]
     rows = [secondary[i:i+2] for i in range(0, len(secondary), 2)]
 
-    date_str = datetime.now().strftime("%A, %B %d, %Y")
+    # Use cached issue date if available, else today
+    date_str = data.get("issue_date", datetime.now().strftime("%A, %B %d, %Y"))
     issue_roman = to_roman(1)
 
     return render_template_string(
